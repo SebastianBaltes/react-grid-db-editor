@@ -149,7 +149,13 @@
   .col-header {
     padding-right: 10px;
     padding-left: 5px;
-    /* position: sticky (from thead th) provides the positioning context */
+    /* Sticky header row. Must be declared here (not only on `thead th`) because
+       the `.col-header, .cell { position: relative }` rule above has higher
+       specificity than `thead th` and would otherwise clobber it to `relative`,
+       making the header scroll away. `sticky` also provides the positioning
+       context for the absolutely positioned resize handle / picker buttons. */
+    position: sticky;
+    top: 0;
 
     &.col-selected {
       background-color: var(--ct-selected-col-bg, hsl(0, 0%, 90%));
