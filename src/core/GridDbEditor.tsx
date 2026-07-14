@@ -191,10 +191,12 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
     const getRowKey = rowKey ?? defaultRowKey;
 
     // --- Focus-new-row-on-create ---
-    // Set by the row-creation handlers to the ORIGINAL-array index of the row
-    // that should receive focus; consumed by the layout effect below once the
-    // parent has re-rendered with the new rows in place.
-    const pendingFocusOrigIdxRef = React.useRef<number | null>(null);
+    // Set by the row-creation handlers to the OBJECT of the row that should
+    // receive focus. Tracking by object identity (not array index or rowKey)
+    // survives the canonical DB pattern where an async onCreateRows assigns a
+    // server PK in-place and the row then resorts/rekeys. Consumed by the layout
+    // effect below, which re-asserts focus every render until the create settles.
+    const pendingFocusRef = React.useRef<{ row: Row; attempts: number } | null>(null);
 
     // First column (in display order) that is editable for the given row:
     // not readOnly, not disabled via cellMeta, and the row itself not readOnly.
@@ -360,17 +362,31 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
     });
 
     // After rows are created, move the cursor to the first editable cell of the
-    // first new row, scroll it into view, and enter edit mode so the user can
+    // (first) new row, scroll it into view, and enter edit mode so the user can
     // type immediately. Runs post-commit (layout effect) so the new row already
     // exists in displayRows and in the DOM (required for scroll-into-view).
+    //
+    // The row is located by OBJECT IDENTITY, and focus is RE-ASSERTED on every
+    // render until the create settles (`pending` goes false). This is what makes
+    // it robust for async backends: onCreateRows may assign a server PK in-place
+    // and resort/rekey the row a few frames later — because we keep re-resolving
+    // the row's current display position, focus follows it to its final spot
+    // instead of stranding on the transient pre-resort position.
     React.useLayoutEffect(() => {
-      const targetOrigIdx = pendingFocusOrigIdxRef.current;
-      if (targetOrigIdx == null) return;
-      pendingFocusOrigIdxRef.current = null;
-      const displayIdx = originalIndices.indexOf(targetOrigIdx);
-      if (displayIdx < 0) return; // new row filtered out of the current view
-      const colIdx = findFirstEditableColIdx(displayRows[displayIdx], displayIdx);
-      if (colIdx < 0) return; // no editable cell (entire row read-only)
+      const target = pendingFocusRef.current;
+      if (!target) return;
+      const displayIdx = displayRows.indexOf(target.row);
+      if (displayIdx < 0) {
+        // Row not in the current view yet (not committed, or filtered out).
+        // Retry for a bounded number of renders, then give up.
+        if (++target.attempts > 60) pendingFocusRef.current = null;
+        return;
+      }
+      const colIdx = findFirstEditableColIdx(target.row, displayIdx);
+      if (colIdx < 0) {
+        pendingFocusRef.current = null; // no editable cell (entire row read-only)
+        return;
+      }
       setCursorRef({
         editing: true,
         initialEditValue: "",
@@ -380,7 +396,12 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         selectionEnd: { rowIdx: displayIdx, colIdx },
         fillEnd: { rowIdx: displayIdx, colIdx },
       });
-    }, [originalIndices, displayRows, findFirstEditableColIdx, setCursorRef]);
+      // Stop once the (possibly async) create has settled. `pending` is true
+      // while onCreateRows' promise is in flight (see withAsyncRollback), so a
+      // synchronous create clears immediately while an async one keeps following
+      // the row across the server-driven resort/rekey.
+      if (!pending) pendingFocusRef.current = null;
+    }, [displayRows, pending, findFirstEditableColIdx, setCursorRef]);
 
     // --- Data mutation helpers ---
     const changeRows = React.useCallback(
@@ -637,8 +658,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       }
       const snapshot = rows;
       undoRedo.pushState(rows);
-      // New rows are appended, so the first one keeps the current end index.
-      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = rows.length;
+      if (focusNewRowOnCreate) pendingFocusRef.current = { row: newRows[0], attempts: 0 };
       changeRows([...rows, ...newRows]);
       if (onCreateRows) {
         withAsyncRollback(snapshot, () => onCreateRows(newRows));
@@ -654,6 +674,27 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       withAsyncRollback,
     ]);
 
+    // Create Rows hotkey (Alt+Insert) bound as a NATIVE keydown listener on the
+    // grid container instead of via React's onKeyDown. Some host apps route or
+    // normalise the synthetic keyboard event so the React handler never sees
+    // Alt+Insert; a native listener on the element itself fires reliably.
+    const handleCreateRowsRef = React.useRef(handleCreateRows);
+    handleCreateRowsRef.current = handleCreateRows;
+    React.useEffect(() => {
+      if (!enableCreateRowsHotkey) return;
+      const el = gridDbEditorRef.current as HTMLElement | null;
+      if (!el) return;
+      const onHotkey = (e: KeyboardEvent) => {
+        if (e.altKey && (e.key === "Insert" || e.code === "Insert")) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCreateRowsRef.current();
+        }
+      };
+      el.addEventListener("keydown", onHotkey);
+      return () => el.removeEventListener("keydown", onHotkey);
+    }, [enableCreateRowsHotkey]);
+
     // --- Insert row above / below ---
     const handleInsertRowAbove = React.useCallback(() => {
       const { startRow } = getSelectionRange();
@@ -665,7 +706,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       const snapshot = rows;
       undoRedo.pushState(rows);
       const newRows = [...rows.slice(0, origIdx), newRow, ...rows.slice(origIdx)];
-      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = origIdx; // inserted at origIdx
+      if (focusNewRowOnCreate) pendingFocusRef.current = { row: newRow, attempts: 0 };
       changeRows(newRows);
       if (onCreateRows) withAsyncRollback(snapshot, () => onCreateRows([newRow]));
     }, [rows, columns, originalIndices, focusNewRowOnCreate, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
@@ -680,7 +721,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       const snapshot = rows;
       undoRedo.pushState(rows);
       const newRows = [...rows.slice(0, origIdx + 1), newRow, ...rows.slice(origIdx + 1)];
-      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = origIdx + 1; // inserted after origIdx
+      if (focusNewRowOnCreate) pendingFocusRef.current = { row: newRow, attempts: 0 };
       changeRows(newRows);
       if (onCreateRows) withAsyncRollback(snapshot, () => onCreateRows([newRow]));
     }, [rows, columns, originalIndices, focusNewRowOnCreate, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
@@ -934,15 +975,6 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         // Optimistic editing allows continued interaction during async operations.
         const ctrl = event.ctrlKey || event.metaKey;
 
-        // Create Rows hotkey (Alt+Insert): same path as the footer button, so the
-        // focus-new-row behaviour applies automatically. Works in and out of edit mode.
-        if (enableCreateRowsHotkey && event.altKey && event.key === "Insert") {
-          event.preventDefault();
-          event.stopPropagation();
-          handleCreateRows();
-          return;
-        }
-
         if (ctrl && event.key === "z") {
           event.preventDefault();
           event.stopPropagation();
@@ -1027,8 +1059,6 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         getRowKey,
         cellMeta,
         onCellChange,
-        enableCreateRowsHotkey,
-        handleCreateRows,
       ],
     );
 
