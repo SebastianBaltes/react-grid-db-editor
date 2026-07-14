@@ -47,6 +47,7 @@ GridDbEditor sits between a rigid single-record form and a free-form spreadsheet
 ### Editing & Interaction
 
 - **Spreadsheet-style editing** — click, Enter, or F2 to edit; Escape to cancel
+- **Fast row creation** — Alt+Insert (or the footer button) adds rows and drops the cursor straight into the first editable cell, scrolled into view and ready to type (configurable via `focusNewRowOnCreate` / `enableCreateRowsHotkey`)
 - **Keyboard navigation** — arrow keys, Tab, Home/End, Page Up/Down
 - **Multi-cell selection** — Shift+Arrow for ranges, click-drag
 - **Column selection** — click column header area to select entire column (configurable via `colSelection` prop)
@@ -233,6 +234,8 @@ flowchart TD
 | `numberOfStickyColums` | `number` | — | `0` | Number of left-pinned columns. |
 | `colSelection` | `boolean` | — | `false` | Enable column selection by clicking the column header area (not the label). Label click always sorts. |
 | `enableSearchReplace` | `boolean` | — | `false` | Enable the Search & Replace dialog (Ctrl+H) and context menu entry. |
+| `focusNewRowOnCreate` | `boolean` | — | `true` | After creating rows (footer button, Alt+Insert hotkey, or context-menu insert above/below), move the cursor to the first editable cell of the first new row (in display order, so it respects sort/filter), scroll it into view, and enter edit mode so the user can type immediately. Set to `false` to opt out. |
+| `enableCreateRowsHotkey` | `boolean` | — | `true` | Enable the built-in **Alt+Insert** shortcut that triggers "Create Rows" (respecting the row-count input). Set to `false` to disable it. |
 | `sortConfig` | `SortConfig` | — | _(internal)_ | Controlled sort state. |
 | `onSortChange` | `(config: SortConfig) => void` | — | — | Called when the user changes sort. |
 | `filters` | `FilterState` | — | _(internal)_ | Controlled filter state. |

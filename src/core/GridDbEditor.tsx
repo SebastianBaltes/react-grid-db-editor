@@ -97,6 +97,20 @@ interface IProps {
   enableSearchReplace: boolean;
   /** Enable column selection by clicking the column header area (not the label). Default: false. */
   colSelection: boolean;
+  /**
+   * After creating rows (footer "Create Rows" button, the create-rows hotkey, or
+   * the context-menu "Insert row above/below"), move the cursor to the first
+   * editable cell of the first newly created row, scroll it into the viewport,
+   * and enter edit mode so the user can type immediately. Works in display
+   * coordinates, so it is correct under active sort/filter. Default: true.
+   */
+  focusNewRowOnCreate: boolean;
+  /**
+   * Enable the built-in keyboard shortcut (Alt+Insert) that triggers "Create Rows",
+   * respecting the current row-count input. The same focus behaviour as the footer
+   * button applies. Set to false to disable the shortcut. Default: true.
+   */
+  enableCreateRowsHotkey: boolean;
 }
 
 type GridDbEditorProps = IRequiredProps & Partial<IProps>;
@@ -132,6 +146,8 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
     colSelection: colSelectionProp,
     columnWidths,
     onColumnResize,
+    focusNewRowOnCreate = true,
+    enableCreateRowsHotkey = true,
   }: GridDbEditorProps) => {
     const t = React.useMemo(() => resolveTranslations(translationsProp), [translationsProp]);
     const [tableId] = React.useState(() => `MkEu3ZWrGK${Math.floor(Math.random() * 1000000)}`);
@@ -173,6 +189,30 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
 
     // --- rowKey helper ---
     const getRowKey = rowKey ?? defaultRowKey;
+
+    // --- Focus-new-row-on-create ---
+    // Set by the row-creation handlers to the ORIGINAL-array index of the row
+    // that should receive focus; consumed by the layout effect below once the
+    // parent has re-rendered with the new rows in place.
+    const pendingFocusOrigIdxRef = React.useRef<number | null>(null);
+
+    // First column (in display order) that is editable for the given row:
+    // not readOnly, not disabled via cellMeta, and the row itself not readOnly.
+    // Returns -1 when the whole row is non-editable.
+    const findFirstEditableColIdx = React.useCallback(
+      (row: Row, displayIdx: number): number => {
+        const meta = cellMeta?.[getRowKey(row, displayIdx)];
+        if (meta?.row?.readOnly) return -1;
+        for (let c = 0; c < columns.length; c++) {
+          const col = columns[c];
+          if (col.readOnly === true) continue;
+          if (meta?.cells?.[col.name]?.disabled) continue;
+          return c;
+        }
+        return -1;
+      },
+      [columns, cellMeta, getRowKey],
+    );
 
     // Accumulative set per column: once a value is seen, it never disappears.
     // This prevents options from vanishing when the passed `rows` are already
@@ -318,6 +358,29 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         fillRectangleStickyRef,
       });
     });
+
+    // After rows are created, move the cursor to the first editable cell of the
+    // first new row, scroll it into view, and enter edit mode so the user can
+    // type immediately. Runs post-commit (layout effect) so the new row already
+    // exists in displayRows and in the DOM (required for scroll-into-view).
+    React.useLayoutEffect(() => {
+      const targetOrigIdx = pendingFocusOrigIdxRef.current;
+      if (targetOrigIdx == null) return;
+      pendingFocusOrigIdxRef.current = null;
+      const displayIdx = originalIndices.indexOf(targetOrigIdx);
+      if (displayIdx < 0) return; // new row filtered out of the current view
+      const colIdx = findFirstEditableColIdx(displayRows[displayIdx], displayIdx);
+      if (colIdx < 0) return; // no editable cell (entire row read-only)
+      setCursorRef({
+        editing: true,
+        initialEditValue: "",
+        filling: false,
+        colSelection: false,
+        selectionStart: { rowIdx: displayIdx, colIdx },
+        selectionEnd: { rowIdx: displayIdx, colIdx },
+        fillEnd: { rowIdx: displayIdx, colIdx },
+      });
+    }, [originalIndices, displayRows, findFirstEditableColIdx, setCursorRef]);
 
     // --- Data mutation helpers ---
     const changeRows = React.useCallback(
@@ -562,7 +625,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
     ]);
 
     // --- Row creation ---
-    const handleCreateRows = () => {
+    const handleCreateRows = React.useCallback(() => {
       const count = Math.max(1, newRowCount);
       const newRows: Row[] = [];
       for (let i = 0; i < count; i++) {
@@ -574,11 +637,22 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       }
       const snapshot = rows;
       undoRedo.pushState(rows);
+      // New rows are appended, so the first one keeps the current end index.
+      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = rows.length;
       changeRows([...rows, ...newRows]);
       if (onCreateRows) {
         withAsyncRollback(snapshot, () => onCreateRows(newRows));
       }
-    };
+    }, [
+      newRowCount,
+      columns,
+      rows,
+      undoRedo,
+      focusNewRowOnCreate,
+      changeRows,
+      onCreateRows,
+      withAsyncRollback,
+    ]);
 
     // --- Insert row above / below ---
     const handleInsertRowAbove = React.useCallback(() => {
@@ -591,9 +665,10 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       const snapshot = rows;
       undoRedo.pushState(rows);
       const newRows = [...rows.slice(0, origIdx), newRow, ...rows.slice(origIdx)];
+      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = origIdx; // inserted at origIdx
       changeRows(newRows);
       if (onCreateRows) withAsyncRollback(snapshot, () => onCreateRows([newRow]));
-    }, [rows, columns, originalIndices, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
+    }, [rows, columns, originalIndices, focusNewRowOnCreate, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
 
     const handleInsertRowBelow = React.useCallback(() => {
       const { endRow } = getSelectionRange();
@@ -605,9 +680,10 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       const snapshot = rows;
       undoRedo.pushState(rows);
       const newRows = [...rows.slice(0, origIdx + 1), newRow, ...rows.slice(origIdx + 1)];
+      if (focusNewRowOnCreate) pendingFocusOrigIdxRef.current = origIdx + 1; // inserted after origIdx
       changeRows(newRows);
       if (onCreateRows) withAsyncRollback(snapshot, () => onCreateRows([newRow]));
-    }, [rows, columns, originalIndices, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
+    }, [rows, columns, originalIndices, focusNewRowOnCreate, changeRows, undoRedo, onCreateRows, withAsyncRollback]);
 
     // --- Row deletion ---
     const handleDeleteRows = React.useCallback(() => {
@@ -858,6 +934,15 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         // Optimistic editing allows continued interaction during async operations.
         const ctrl = event.ctrlKey || event.metaKey;
 
+        // Create Rows hotkey (Alt+Insert): same path as the footer button, so the
+        // focus-new-row behaviour applies automatically. Works in and out of edit mode.
+        if (enableCreateRowsHotkey && event.altKey && event.key === "Insert") {
+          event.preventDefault();
+          event.stopPropagation();
+          handleCreateRows();
+          return;
+        }
+
         if (ctrl && event.key === "z") {
           event.preventDefault();
           event.stopPropagation();
@@ -942,6 +1027,8 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         getRowKey,
         cellMeta,
         onCellChange,
+        enableCreateRowsHotkey,
+        handleCreateRows,
       ],
     );
 
