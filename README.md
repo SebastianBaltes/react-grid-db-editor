@@ -100,6 +100,7 @@ GridDbEditor sits between a rigid single-record form and a free-form spreadsheet
 - **Pagination** — standalone `<Pagination>` component, works with any list
 - **Selection range listener** — `onSelectionChange` for aggregation (sum, count, average)
 - **Header tooltips** — `headerTitle` per column for descriptive tooltips on column headers
+- **Clickable header icons** — `headerIcons` per column renders glyphs after the label; icons with `onClick` are buttons whose click is isolated from column sorting (e.g. an FK "open target" arrow)
 - **ARIA-conformant focus** — proper focus/blur behavior for accessibility
 
 ---
@@ -279,6 +280,7 @@ interface ColumnConfig<T> {
   inputMask?: string;     // # = digit, A = letter, * = any; rest is literal
   align?: "left" | "right" | "center";
   headerTitle?: string;   // Tooltip shown on column header (HTML title attribute)
+  headerIcons?: HeaderIcon[]; // Icons after the label; with onClick = clickable button, click isolated from sort
   filterable?: boolean;   // Hide filter input (default: true)
   filterEditor?: FilterEditor;
   dialogTitle?: string;   // Title for textarea dialog editor

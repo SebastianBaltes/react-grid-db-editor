@@ -85,6 +85,22 @@ export interface DurationFormat {
 }
 
 /**
+ * A single icon shown in a column header (see `ColumnConfig.headerIcons`).
+ */
+export interface HeaderIcon {
+  /** Glyph or short text to render, e.g. "➔" or "🔑". */
+  glyph: string;
+  /** Tooltip shown as the HTML `title` attribute. */
+  title?: string;
+  /**
+   * Click handler. When provided the icon becomes a focusable button and its
+   * click fires this handler WITHOUT triggering the column's sort toggle.
+   * When omitted the icon is a passive, non-interactive glyph.
+   */
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}
+
+/**
  * Interface for column configuration.
  */
 export interface ColumnConfig<T> {
@@ -151,6 +167,16 @@ export interface ColumnConfig<T> {
    * Tooltip text shown as HTML title attribute on the column header.
    */
   headerTitle?: string;
+
+  /**
+   * Icons rendered in the column header after the label (and before the sort
+   * arrow). An icon with `onClick` is rendered as a focusable button whose click
+   * fires `onClick` and does NOT trigger the column's sort toggle — the library
+   * isolates the click for you, so no stopPropagation is needed on your side.
+   * Icons without `onClick` are passive, non-interactive glyphs (equivalent to
+   * appending a glyph to `label`, but individually addressable and tooltip-able).
+   */
+  headerIcons?: HeaderIcon[];
 
   /**
    * Number display format. Only meaningful for type "Number".

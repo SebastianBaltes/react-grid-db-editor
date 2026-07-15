@@ -225,6 +225,37 @@ export const ColHeader = React.memo(
       );
     };
 
+    // Header icons rendered after the label. Icons with an onClick become
+    // buttons whose click is isolated from the column sort (stopPropagation),
+    // so consumers don't need to guard against it. Icons without onClick are
+    // passive glyphs.
+    const renderHeaderIcons = () => {
+      const icons = column.headerIcons;
+      if (!icons || icons.length === 0) return null;
+      return icons.map((icon, i) =>
+        icon.onClick ? (
+          <button
+            key={i}
+            type="button"
+            className="col-header-icon col-header-icon-button"
+            title={icon.title}
+            aria-label={icon.title}
+            onClick={(e) => {
+              e.stopPropagation();
+              icon.onClick!(e);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {icon.glyph}
+          </button>
+        ) : (
+          <span key={i} className="col-header-icon" title={icon.title} aria-hidden="true">
+            {icon.glyph}
+          </span>
+        ),
+      );
+    };
+
     const align = columnAlign(column);
     return (
       <th
@@ -275,6 +306,7 @@ export const ColHeader = React.memo(
         <div className="col-header-content">
           <span className="col-header-label" title={column.headerTitle} onClick={handleSortClick}>
             {label}
+            {renderHeaderIcons()}
             {pendingSortColumn === column.name ? (
               <span className="col-sort-spinner" aria-label="loading" />
             ) : (
