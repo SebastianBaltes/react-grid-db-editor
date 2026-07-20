@@ -101,10 +101,15 @@ test("sync create focuses first editable cell (skips readOnly id) in edit mode",
 // one-shot focus) happens in a SEPARATE frame from the PK-assign + resort —
 // exactly like a real network round-trip in goback.
 let serverRespond: () => void = () => {};
+// Controlled sort means this harness stands in for the data source, so it sorts
+// its own rows — the grid must not do it.
+const byIdDesc = (rows: Row[]) =>
+  [...rows].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+
 function AsyncHarness() {
   const [rows, setRows] = useState<Row[]>([
-    { id: 1, name: "a" },
     { id: 2, name: "b" },
+    { id: 1, name: "a" },
   ]);
   const nextId = useRef(3);
   const sortConfig: SortConfig = [{ column: "id", direction: "desc" }];
@@ -121,7 +126,7 @@ function AsyncHarness() {
             created.forEach((row) => {
               row.id = nextId.current++; // assign PK in-place (same object ref)
             });
-            setRows((prev) => [...prev]); // resort: new row (max id) → top; rowKey changes
+            setRows((prev) => byIdDesc(prev)); // resort: new row (max id) → top; rowKey changes
             resolve();
           };
         })

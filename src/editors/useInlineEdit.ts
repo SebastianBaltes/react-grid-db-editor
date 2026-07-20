@@ -46,11 +46,17 @@ export function useInlineEdit({
   const isEscapingRef = useRef(false);
   const prevEditingRef = useRef(false);
   const navigateOnArrowRightRef = useRef(false);
+  // Enter/Tab/ArrowRight commit and then let the key bubble, which focuses the
+  // grid container while this input is still mounted. The browser answers with
+  // a synchronous focusout, so handleBlur would commit the same value a second
+  // time within one dispatch.
+  const hasCommittedRef = useRef(false);
 
   // --- Sync local value on edit-enter / edit-exit / prop change ---
   useEffect(() => {
     if (editing && !prevEditingRef.current) {
       isEscapingRef.current = false;
+      hasCommittedRef.current = false;
       if (initialEditValue !== null && initialEditValue !== "") {
         setLocalValue(transform(initialEditValue));
         navigateOnArrowRightRef.current = true;
@@ -77,6 +83,11 @@ export function useInlineEdit({
     }
   }, [editing, initialEditValue]);
 
+  const commit = () => {
+    hasCommittedRef.current = true;
+    onCommit(localValue);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       isEscapingRef.current = true;
@@ -84,7 +95,7 @@ export function useInlineEdit({
       return;
     }
     if (e.key === "Enter" || e.key === "Tab") {
-      onCommit(localValue);
+      commit();
       return;
     }
     if (e.key === "ArrowRight" && navigateOnArrowRightRef.current) {
@@ -93,15 +104,16 @@ export function useInlineEdit({
         input.selectionStart === input.value.length &&
         input.selectionEnd === input.value.length
       ) {
-        onCommit(localValue);
+        commit();
         return;
       }
     }
     e.stopPropagation();
   };
 
+  // Still the legitimate commit path for clicking elsewhere.
   const handleBlur = () => {
-    if (!isEscapingRef.current) onCommit(localValue);
+    if (!isEscapingRef.current && !hasCommittedRef.current) onCommit(localValue);
   };
 
   return { localValue, setLocalValue, inputRef, handleKeyDown, handleBlur };

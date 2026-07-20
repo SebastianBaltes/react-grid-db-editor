@@ -54,11 +54,21 @@ interface IProps {
   numberOfStickyColums: number;
 
   // --- Controlled filter / sort ---
-  /** If provided, sort is controlled externally. */
+  /**
+   * If provided, sort is controlled externally: the grid renders the header
+   * arrows from this config but does NOT sort `rows` itself. Ordering is then
+   * the data source's job — reload `rows` from onSortChange. Omit to let the
+   * grid own both the state and the sorting.
+   */
   sortConfig: SortConfig;
   /** Called when the user changes sort. Required when sortConfig is controlled. */
   onSortChange: (config: SortConfig) => void;
-  /** If provided, filters are controlled externally. */
+  /**
+   * If provided, filters are controlled externally: the grid renders the filter
+   * inputs from this state but does NOT filter `rows` itself. Narrowing the row
+   * set is then the data source's job — reload `rows` from onFilterChange.
+   * Omit to let the grid own both the state and the filtering.
+   */
   filters: FilterState;
   /** Called when the user changes a filter. Required when filters is controlled. */
   onFilterChange: (filters: FilterState) => void;
@@ -253,12 +263,22 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       return map;
     }, [rows, columns]);
 
-    // Index mapping for filtered/sorted rows
+    // Index mapping for filtered/sorted rows.
+    //
+    // Controlled sort/filter means an external data source (a DB) owns the
+    // ordering and the row set: the consumer reloads `rows` in response to
+    // onSortChange/onFilterChange. Re-applying either here would fight that
+    // source — it re-sorts on every keystroke-commit (rows the user is editing
+    // jump away under the cursor) and it re-filters an already-filtered page
+    // with different semantics than the backend. So each transform runs only
+    // while its own state is uncontrolled.
     const { displayRows, originalIndices } = React.useMemo(() => {
       let indexed = rows.map((row, idx) => ({ row, originalIdx: idx }));
 
       // Apply filters
-      const activeFilters = Object.entries(effectiveFilters).filter(([, v]) => v.trim() !== "");
+      const activeFilters = isControlledFilter
+        ? []
+        : Object.entries(effectiveFilters).filter(([, v]) => v.trim() !== "");
       if (activeFilters.length > 0) {
         indexed = indexed.filter(({ row }) =>
           activeFilters.every(([colName, filterVal]) => {
@@ -295,7 +315,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
       }
 
       // Apply multi-sort
-      if (effectiveSortConfig && effectiveSortConfig.length > 0) {
+      if (!isControlledSort && effectiveSortConfig && effectiveSortConfig.length > 0) {
         indexed.sort((a, b) => {
           for (const { column, direction } of effectiveSortConfig) {
             const aVal = a.row[column];
@@ -314,7 +334,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
         displayRows: indexed.map((i) => i.row),
         originalIndices: indexed.map((i) => i.originalIdx),
       };
-    }, [rows, effectiveSortConfig, effectiveFilters]);
+    }, [rows, effectiveSortConfig, effectiveFilters, isControlledSort, isControlledFilter]);
 
     const {
       cursorRef,
