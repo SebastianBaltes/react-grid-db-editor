@@ -5,6 +5,12 @@ interface ComboboxFilterProps {
   value: string;
   onChange: (value: string) => void;
   options: string[];
+  /**
+   * When true, typed free text is only committed via onChange on Enter or blur
+   * (not on every keystroke). Checkbox selections in the dropdown always commit
+   * immediately. Default: false.
+   */
+  commitOnBlur?: boolean;
 }
 
 /** Sentinel used internally to represent the empty-string value in the filter state. */
@@ -53,7 +59,7 @@ export const parseFilterValue = (
  * - `"HR"` → plain substring match on "HR"
  * - `""` → no filter
  */
-export const ComboboxFilter: React.FC<ComboboxFilterProps> = ({ value, onChange, options }) => {
+export const ComboboxFilter: React.FC<ComboboxFilterProps> = ({ value, onChange, options, commitOnBlur = false }) => {
   const [open, setOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -125,10 +131,19 @@ export const ComboboxFilter: React.FC<ComboboxFilterProps> = ({ value, onChange,
     setSearchText(text);
     if (!open) setOpen(true);
     // When checkboxes are active, typing only narrows the dropdown.
-    // When no checkboxes, typing is a live substring filter on the table.
-    if (selected.length === 0) {
+    // When no checkboxes, typing is a live substring filter on the table —
+    // unless commitOnBlur is set, in which case the substring value is only
+    // committed on Enter/blur (see commitText below).
+    if (selected.length === 0 && !commitOnBlur) {
       onChange(text);
     }
+  };
+
+  // Commit the pending free-text substring (commitOnBlur mode only). No-op when
+  // checkboxes are active (those commit immediately via toggle).
+  const commitText = () => {
+    if (!commitOnBlur || selected.length > 0) return;
+    if (searchText !== textFilter) onChange(searchText);
   };
 
   return (
@@ -151,6 +166,17 @@ export const ComboboxFilter: React.FC<ComboboxFilterProps> = ({ value, onChange,
           setSearchText(isMulti ? "" : textFilter);
         }}
         onChange={(e) => handleTextChange(e.target.value)}
+        {...(commitOnBlur
+          ? {
+              onBlur: commitText,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitText();
+                }
+              },
+            }
+          : {})}
       />
       {(selected.length > 0 || textFilter) && (
         <button

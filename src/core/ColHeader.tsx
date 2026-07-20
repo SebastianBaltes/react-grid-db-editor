@@ -27,6 +27,7 @@ export const ColHeader = React.memo(
     columnWidth,
     onColumnResize,
     colSelection,
+    commitFilterOnBlur,
   }: {
     colIdx: number;
     cursorRef: React.MutableRefObject<Cursor>;
@@ -46,6 +47,7 @@ export const ColHeader = React.memo(
     columnWidth?: number;
     onColumnResize?: OnColumnResize;
     colSelection?: boolean;
+    commitFilterOnBlur?: boolean;
   }) => {
     const t = useContext(TranslationsContext);
     const { editing, selectionStart, selectionEnd } = cursorRef.current;
@@ -124,6 +126,22 @@ export const ColHeader = React.memo(
       setLocalFilter(value);
       onFilterChange(value);
     };
+    // Enter/Blur-Commit-Modus: Tippen aktualisiert nur den lokalen Puffer; der
+    // Filter wird erst bei Enter oder Blur nach aussen gemeldet (onFilterChange).
+    // Bei controlled/Backend-Filtern vermeidet das einen Server-Roundtrip pro
+    // Tastenanschlag. Diskrete Eingaben (Boolean-Select, Combobox-Checkboxen)
+    // committen weiterhin sofort.
+    const handleDeferredFilterInput = (value: string) => setLocalFilter(value);
+    const commitLocalFilter = () => {
+      if (localFilter !== filterValue) onFilterChange(localFilter);
+    };
+    const handleFilterKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitLocalFilter();
+      }
+    };
 
     const handleSortClick = (event: React.MouseEvent) => {
       const tag = (event.target as HTMLElement).tagName;
@@ -187,7 +205,12 @@ export const ColHeader = React.memo(
       if (filterOptions && filterOptions.length > 0) {
         return (
           <div className="col-filter-wrap">
-            <ComboboxFilter value={bufferedFilterValue} onChange={handleBufferedFilterChange} options={filterOptions} />
+            <ComboboxFilter
+              value={bufferedFilterValue}
+              onChange={handleBufferedFilterChange}
+              options={filterOptions}
+              commitOnBlur={commitFilterOnBlur}
+            />
             {filterSpinner}
           </div>
         );
@@ -218,7 +241,14 @@ export const ColHeader = React.memo(
             {...sharedFilterProps}
             type="text"
             value={bufferedFilterValue}
-            onChange={(e) => handleBufferedFilterChange(e.target.value)}
+            onChange={(e) =>
+              commitFilterOnBlur
+                ? handleDeferredFilterInput(e.target.value)
+                : handleBufferedFilterChange(e.target.value)
+            }
+            {...(commitFilterOnBlur
+              ? { onKeyDown: handleFilterKeyDown, onBlur: commitLocalFilter }
+              : {})}
           />
           {filterSpinner}
         </div>

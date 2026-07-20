@@ -42,6 +42,7 @@ export const RowTable = React.memo(
     columnWidths,
     onColumnResize,
     colSelection,
+    commitFilterOnBlur,
   }: {
     tableId: string;
     tableRef: React.RefObject<HTMLTableElement>;
@@ -68,6 +69,7 @@ export const RowTable = React.memo(
     columnWidths?: Record<string, number>;
     onColumnResize?: OnColumnResize;
     colSelection?: boolean;
+    commitFilterOnBlur?: boolean;
   }) => {
     const resolvedGetRowKey = getRowKey ?? defaultRowKey;
     return (
@@ -107,6 +109,7 @@ export const RowTable = React.memo(
                   columnWidth={columnWidths?.[column.name]}
                   onColumnResize={onColumnResize}
                   colSelection={colSelection}
+                  commitFilterOnBlur={commitFilterOnBlur}
                 />
               );
             })}

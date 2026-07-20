@@ -72,6 +72,14 @@ interface IProps {
   filters: FilterState;
   /** Called when the user changes a filter. Required when filters is controlled. */
   onFilterChange: (filters: FilterState) => void;
+  /**
+   * Commit header text/combobox filter input only on Enter or blur instead of on
+   * every keystroke. Useful for controlled/backend filtering where each commit
+   * triggers a server round-trip. Discrete inputs (Boolean select, checkbox
+   * options in the combobox dropdown) always commit immediately. Default: false
+   * (commit on change, unchanged legacy behaviour).
+   */
+  commitFilterOnBlur: boolean;
 
   // --- Cell / Row meta ---
   /** Meta information (style, disabled, title) per cell/row, keyed by rowKey then columnName. */
@@ -158,6 +166,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
     onColumnResize,
     focusNewRowOnCreate = true,
     enableCreateRowsHotkey = true,
+    commitFilterOnBlur = false,
   }: GridDbEditorProps) => {
     const t = React.useMemo(() => resolveTranslations(translationsProp), [translationsProp]);
     const [tableId] = React.useState(() => `MkEu3ZWrGK${Math.floor(Math.random() * 1000000)}`);
@@ -1363,6 +1372,7 @@ export const GridDbEditor: React.FC<GridDbEditorProps> = React.memo(
                 columnWidths,
                 onColumnResize,
                 colSelection: colSelectionProp,
+                commitFilterOnBlur,
               }}
               stickyPortal={
                 numberOfStickyColums === 0
